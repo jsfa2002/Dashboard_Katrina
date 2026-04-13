@@ -38,6 +38,7 @@ WHITE   = "#FFFFFF"
 GREEN   = "#27AE60"
 RED     = "#E74C3C"
 GRAY    = "#8892A4"
+LIGHT_BROWN = "#D2B48C"   # Café claro para el expander y botón de descarga
 
 CSS = f"""
 <style>
@@ -61,7 +62,7 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
 [data-testid="stMetricValue"] {{ color: {WHITE} !important; font-size: 28px; font-weight: bold; }}
 [data-testid="stMetricDelta"] {{ font-size: 12px; }}
 
-/* Botón principal */
+/* Botón principal (general) */
 .stButton > button {{
     background-color: {GOLD};
     color: {NAVY};
@@ -71,6 +72,37 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
     padding: 8px 20px;
 }}
 .stButton > button:hover {{ background-color: {GOLD_L}; }}
+
+/* Botón de descarga en el sidebar (café claro) */
+[data-testid="stSidebar"] .stButton > button {{
+    background-color: {LIGHT_BROWN} !important;
+    color: {NAVY} !important;
+    border: none !important;
+}}
+[data-testid="stSidebar"] .stButton > button:hover {{
+    background-color: #E0C090 !important;
+}}
+
+/* Expander "¿Cómo registrar los datos?" */
+[data-testid="stExpander"] {{
+    background-color: {LIGHT_BROWN} !important;
+    border-radius: 10px !important;
+    border: 1px solid {GOLD} !important;
+}}
+[data-testid="stExpander"] summary {{
+    background-color: {LIGHT_BROWN} !important;
+    color: {NAVY} !important;
+    font-weight: bold !important;
+    border-radius: 10px !important;
+}}
+[data-testid="stExpander"] div[data-testid="stExpanderDetails"] {{
+    background-color: {LIGHT_BROWN} !important;
+    color: {NAVY} !important;
+    border-radius: 10px !important;
+}}
+[data-testid="stExpander"] div[data-testid="stExpanderDetails"] * {{
+    color: {NAVY} !important;
+}}
 
 /* File uploader - fondo y borde */
 [data-testid="stFileUploader"] {{
@@ -92,7 +124,6 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
 }}
 [data-testid="stFileUploader"] button:hover {{
     background-color: {GOLD_L} !important;
-    color: {NAVY} !important;
 }}
 
 /* Texto dentro del uploader */
@@ -193,13 +224,13 @@ with st.sidebar:
     st.markdown("<hr style='border-color:#2D3561; margin:12px 0;'>", unsafe_allow_html=True)
     with st.expander("📥 ¿Cómo registrar los datos?", expanded=False):
         st.markdown(f"""
-        <div style='color:{GRAY}; font-size:11px; line-height:1.7;'>
-        <b style='color:{GOLD};'>Proceso recomendado:</b><br>
+        <div style='color:{NAVY}; font-size:11px; line-height:1.7; background-color:{LIGHT_BROWN}; padding:10px; border-radius:8px;'>
+        <b style='color:{NAVY};'>Proceso recomendado:</b><br>
         1. Por cada pedido recibido por WhatsApp, diligenciar una fila en el Excel.<br>
         2. Al cerrar el mes, exportar como CSV.<br>
         3. Subir el archivo a este dashboard.<br><br>
-        <b style='color:{GOLD};'>Frecuencia:</b> mensual o semanal<br>
-        <b style='color:{GOLD};'>Plantilla:</b> descarga el archivo de ejemplo con el botón de abajo.
+        <b style='color:{NAVY};'>Frecuencia:</b> mensual o semanal<br>
+        <b style='color:{NAVY};'>Plantilla:</b> descarga el archivo de ejemplo con el botón de abajo.
         </div>
         """, unsafe_allow_html=True)
 
@@ -294,7 +325,7 @@ with col_titulo:
 
 st.markdown("<hr style='border-color:#2D3561; margin:10px 0 16px;'>", unsafe_allow_html=True)
 
-# Botón plantilla siempre visible
+# Botón plantilla siempre visible (dentro del sidebar, ya estilizado)
 with st.sidebar:
     st.download_button(
         label="📥 Descargar plantilla Excel",
