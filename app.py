@@ -72,12 +72,33 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
 }}
 .stButton > button:hover {{ background-color: {GOLD_L}; }}
 
-/* File uploader */
+/* File uploader - fondo y borde */
 [data-testid="stFileUploader"] {{
     background-color: {NAVY_M};
     border: 1px dashed {GOLD};
     border-radius: 10px;
     padding: 10px;
+}}
+
+/* Botón dentro del file uploader */
+[data-testid="stFileUploader"] button {{
+    background-color: {GOLD} !important;
+    color: {NAVY} !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-weight: bold !important;
+    padding: 8px 20px !important;
+    transition: 0.2s;
+}}
+[data-testid="stFileUploader"] button:hover {{
+    background-color: {GOLD_L} !important;
+    color: {NAVY} !important;
+}}
+
+/* Texto dentro del uploader */
+[data-testid="stFileUploader"] span,
+[data-testid="stFileUploader"] p {{
+    color: {WHITE} !important;
 }}
 
 /* Tabs */
