@@ -38,7 +38,7 @@ WHITE   = "#FFFFFF"
 GREEN   = "#27AE60"
 RED     = "#E74C3C"
 GRAY    = "#8892A4"
-LIGHT_BROWN = "#D2B48C"   # Café claro para el expander y botón de descarga
+LIGHT_BROWN = "#D2B48C"   # Café claro
 
 CSS = f"""
 <style>
@@ -70,37 +70,38 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
     border: none;
     border-radius: 6px;
     padding: 8px 20px;
+    transition: 0.2s;
 }}
 .stButton > button:hover {{ background-color: {GOLD_L}; }}
 
-/* Botón de descarga en el sidebar (café claro) */
-[data-testid="stSidebar"] .stButton > button {{
+/* Botón de descarga de plantilla en el sidebar - forzamos estilo */
+section[data-testid="stSidebar"] .stButton > button {{
     background-color: {LIGHT_BROWN} !important;
     color: {NAVY} !important;
-    border: none !important;
+    border: 1px solid {GOLD} !important;
 }}
-[data-testid="stSidebar"] .stButton > button:hover {{
+section[data-testid="stSidebar"] .stButton > button:hover {{
     background-color: #E0C090 !important;
 }}
 
 /* Expander "¿Cómo registrar los datos?" */
-[data-testid="stExpander"] {{
+section[data-testid="stSidebar"] [data-testid="stExpander"] {{
     background-color: {LIGHT_BROWN} !important;
     border-radius: 10px !important;
     border: 1px solid {GOLD} !important;
 }}
-[data-testid="stExpander"] summary {{
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
     background-color: {LIGHT_BROWN} !important;
     color: {NAVY} !important;
     font-weight: bold !important;
     border-radius: 10px !important;
 }}
-[data-testid="stExpander"] div[data-testid="stExpanderDetails"] {{
+section[data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] {{
     background-color: {LIGHT_BROWN} !important;
     color: {NAVY} !important;
     border-radius: 10px !important;
 }}
-[data-testid="stExpander"] div[data-testid="stExpanderDetails"] * {{
+section[data-testid="stSidebar"] [data-testid="stExpander"] div[data-testid="stExpanderDetails"] * {{
     color: {NAVY} !important;
 }}
 
@@ -120,7 +121,6 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
     border-radius: 6px !important;
     font-weight: bold !important;
     padding: 8px 20px !important;
-    transition: 0.2s;
 }}
 [data-testid="stFileUploader"] button:hover {{
     background-color: {GOLD_L} !important;
@@ -161,7 +161,6 @@ st.markdown(CSS, unsafe_allow_html=True)
 
 # ── Helpers de formato ────────────────────────────────────────────
 def fmt_cop(val):
-    """Formatea un número como pesos colombianos."""
     return f"${val:,.0f}"
 
 def pct(val, total):
@@ -224,7 +223,7 @@ with st.sidebar:
     st.markdown("<hr style='border-color:#2D3561; margin:12px 0;'>", unsafe_allow_html=True)
     with st.expander("📥 ¿Cómo registrar los datos?", expanded=False):
         st.markdown(f"""
-        <div style='color:{NAVY}; font-size:11px; line-height:1.7; background-color:{LIGHT_BROWN}; padding:10px; border-radius:8px;'>
+        <div style='color:{NAVY}; font-size:11px; line-height:1.7;'>
         <b style='color:{NAVY};'>Proceso recomendado:</b><br>
         1. Por cada pedido recibido por WhatsApp, diligenciar una fila en el Excel.<br>
         2. Al cerrar el mes, exportar como CSV.<br>
@@ -237,7 +236,6 @@ with st.sidebar:
 # ── Cargar y unificar datos ───────────────────────────────────────
 @st.cache_data
 def cargar_archivos(archivos_bytes_lista):
-    """Carga y unifica múltiples archivos CSV/Excel."""
     dfs = []
     errores = []
     nombres = []
@@ -257,14 +255,13 @@ def cargar_archivos(archivos_bytes_lista):
     return None, errores, nombres
 
 def preparar_df(df):
-    """Limpia y enriquece el dataframe."""
     df = df.copy()
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     if "fecha_pedido" in df.columns:
         df["fecha_pedido"] = pd.to_datetime(df["fecha_pedido"], errors="coerce")
-        df["mes"]          = df["fecha_pedido"].dt.month
-        df["mes_nombre"]   = df["fecha_pedido"].dt.strftime("%b %Y")
-        df["semana"]       = df["fecha_pedido"].dt.isocalendar().week.astype(int)
+        df["mes"] = df["fecha_pedido"].dt.month
+        df["mes_nombre"] = df["fecha_pedido"].dt.strftime("%b %Y")
+        df["semana"] = df["fecha_pedido"].dt.isocalendar().week.astype(int)
     if "estado_pedido" in df.columns:
         df["estado_pedido"] = df["estado_pedido"].str.strip()
     for col in ["total_venta", "margen_bruto", "precio_unitario", "costo_produccion", "cantidad"]:
@@ -272,12 +269,11 @@ def preparar_df(df):
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     if "fecha_entrega_comprometida" in df.columns and "fecha_entrega_real" in df.columns:
         df["fecha_entrega_comprometida"] = pd.to_datetime(df["fecha_entrega_comprometida"], errors="coerce")
-        df["fecha_entrega_real"]         = pd.to_datetime(df["fecha_entrega_real"], errors="coerce")
+        df["fecha_entrega_real"] = pd.to_datetime(df["fecha_entrega_real"], errors="coerce")
         df["dias_retraso"] = (df["fecha_entrega_real"] - df["fecha_entrega_comprometida"]).dt.days.fillna(0)
         df["entregado_a_tiempo"] = df["dias_retraso"] <= 0
     return df
 
-# ── Plantilla de descarga ─────────────────────────────────────────
 def generar_plantilla():
     ejemplo = pd.DataFrame([{
         "id_pedido": "KAT-202501-001",
@@ -301,7 +297,6 @@ def generar_plantilla():
     return ejemplo.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 # ── Contenido principal ───────────────────────────────────────────
-# Header
 col_logo, col_titulo = st.columns([1, 5])
 with col_logo:
     st.markdown(f"""
@@ -325,7 +320,7 @@ with col_titulo:
 
 st.markdown("<hr style='border-color:#2D3561; margin:10px 0 16px;'>", unsafe_allow_html=True)
 
-# Botón plantilla siempre visible (dentro del sidebar, ya estilizado)
+# Botón plantilla siempre visible (dentro del sidebar)
 with st.sidebar:
     st.download_button(
         label="📥 Descargar plantilla Excel",
@@ -441,16 +436,16 @@ with fc4:
 df_f = df.copy()
 df_fe = df_e.copy()
 if cat_sel != "Todas":
-    df_f  = df_f[df_f["categoria"] == cat_sel]
+    df_f = df_f[df_f["categoria"] == cat_sel]
     df_fe = df_fe[df_fe["categoria"] == cat_sel]
 if canal_sel != "Todos":
-    df_f  = df_f[df_f["canal"] == canal_sel]
+    df_f = df_f[df_f["canal"] == canal_sel]
     df_fe = df_fe[df_fe["canal"] == canal_sel]
 if meses_sel:
-    df_f  = df_f[df_f["mes_nombre"].isin(meses_sel)]
+    df_f = df_f[df_f["mes_nombre"].isin(meses_sel)]
     df_fe = df_fe[df_fe["mes_nombre"].isin(meses_sel)]
 if talla_sel != "Todas":
-    df_f  = df_f[df_f["talla"] == talla_sel]
+    df_f = df_f[df_f["talla"] == talla_sel]
     df_fe = df_fe[df_fe["talla"] == talla_sel]
 
 st.markdown("<hr style='border-color:#2D3561; margin:10px 0 14px;'>", unsafe_allow_html=True)
@@ -537,7 +532,6 @@ with tab1:
             st.info("Sin datos de fecha disponibles.")
 
     with c_der:
-        # Estado de pedidos — donut
         if "estado_pedido" in df_f.columns and not df_f.empty:
             estado_cnt = df_f["estado_pedido"].value_counts().reset_index()
             estado_cnt.columns = ["Estado", "Cantidad"]
@@ -560,7 +554,6 @@ with tab1:
             fig_layout(fig_d, "Estado de Pedidos", 360)
             st.plotly_chart(fig_d, use_container_width=True)
 
-    # Tabla resumen por mes
     if "mes_nombre" in df_fe.columns and not df_fe.empty:
         st.markdown(f"<h4 style='color:{GOLD};'>Resumen mensual</h4>", unsafe_allow_html=True)
         orden_meses = sorted(df_fe["mes_nombre"].unique(),
@@ -588,7 +581,6 @@ with tab2:
     else:
         c1, c2 = st.columns(2)
         with c1:
-            # Top referencias por ventas
             if "referencia" in df_fe.columns:
                 top_ref = (df_fe.groupby("referencia", observed=True)
                            .agg(ventas=("total_venta","sum"), unidades=("cantidad","sum"),
@@ -604,7 +596,6 @@ with tab2:
                 st.plotly_chart(fig_ref, use_container_width=True)
 
         with c2:
-            # Ventas por categoría
             if "categoria" in df_fe.columns:
                 cat_v = (df_fe.groupby("categoria", observed=True)
                          ["total_venta"].sum().reset_index())
@@ -619,7 +610,6 @@ with tab2:
 
         c3, c4 = st.columns(2)
         with c3:
-            # Margen por referencia
             if "referencia" in df_fe.columns:
                 marg_ref = (df_fe.groupby("referencia", observed=True)
                             .agg(margen=("margen_bruto","sum"),
@@ -643,7 +633,6 @@ with tab2:
                 st.plotly_chart(fig_marg, use_container_width=True)
 
         with c4:
-            # Distribución de tallas
             if "talla" in df_fe.columns:
                 talla_v = (df_fe.groupby("talla", observed=True)
                            ["cantidad"].sum().reset_index()
@@ -657,7 +646,6 @@ with tab2:
                 fig_layout(fig_talla, "Unidades Vendidas por Talla", 340)
                 st.plotly_chart(fig_talla, use_container_width=True)
 
-        # Tabla rentabilidad por producto
         if "referencia" in df_fe.columns:
             st.markdown(f"<h4 style='color:{GOLD};'>Rentabilidad por Producto</h4>", unsafe_allow_html=True)
             tabla_prod = (df_fe.groupby(["categoria","referencia"], observed=True)
@@ -709,7 +697,6 @@ with tab3:
                 fig_layout(fig_pago, "Ventas por Método de Pago", 340)
                 st.plotly_chart(fig_pago, use_container_width=True)
 
-        # Evolución canal por mes
         if "canal" in df_fe.columns and "mes_nombre" in df_fe.columns:
             orden_meses = sorted(df_fe["mes_nombre"].unique(),
                                  key=lambda x: pd.to_datetime(x, format="%b %Y"))
@@ -727,7 +714,6 @@ with tab3:
             fig_layout(fig_evo, "Evolución de Ventas por Canal y Mes", 320)
             st.plotly_chart(fig_evo, use_container_width=True)
 
-        # Tabla canales
         if "canal" in df_fe.columns:
             st.markdown(f"<h4 style='color:{GOLD};'>Detalle por Canal</h4>", unsafe_allow_html=True)
             canal_det = (df_fe.groupby("canal", observed=True)
@@ -750,7 +736,6 @@ with tab3:
 with tab4:
     c1, c2 = st.columns(2)
     with c1:
-        # Pedidos por día de la semana
         if "fecha_pedido" in df_f.columns and not df_f.empty:
             df_f["dia_semana"] = df_f["fecha_pedido"].dt.day_name()
             orden_dias = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
@@ -769,7 +754,6 @@ with tab4:
             st.plotly_chart(fig_dias, use_container_width=True)
 
     with c2:
-        # Puntualidad en entregas
         if "entregado_a_tiempo" in df_fe.columns and not df_fe.empty:
             a_tiempo    = df_fe["entregado_a_tiempo"].sum()
             con_retraso = (~df_fe["entregado_a_tiempo"]).sum()
@@ -791,7 +775,6 @@ with tab4:
         else:
             st.info("Necesitas columnas 'fecha_entrega_comprometida' y 'fecha_entrega_real' para ver puntualidad.")
 
-    # Retrasos por referencia
     if "dias_retraso" in df_fe.columns and "referencia" in df_fe.columns and not df_fe.empty:
         retraso_ref = (df_fe.groupby("referencia", observed=True)["dias_retraso"]
                        .mean().reset_index().sort_values("dias_retraso", ascending=False))
@@ -809,7 +792,6 @@ with tab4:
         fig_ret.update_xaxes(tickangle=-35)
         st.plotly_chart(fig_ret, use_container_width=True)
 
-    # KPIs operacionales
     st.markdown(f"<h4 style='color:{GOLD};'>Indicadores Operacionales</h4>", unsafe_allow_html=True)
     ko1, ko2, ko3, ko4 = st.columns(4)
     with ko1:
@@ -833,7 +815,6 @@ with tab5:
     st.markdown(f"<h4 style='color:{GOLD};'>Tabla de datos ({len(df_f):,} registros)</h4>",
                 unsafe_allow_html=True)
 
-    # Búsqueda rápida
     buscar = st.text_input("🔍 Buscar (cliente, referencia, canal...)", placeholder="Escribir para filtrar...",
                            label_visibility="collapsed")
     if buscar:
@@ -842,12 +823,10 @@ with tab5:
     else:
         df_mostrar = df_f
 
-    # Columnas a mostrar (excluir columnas internas)
     cols_mostrar = [c for c in df_mostrar.columns if not c.startswith("_")]
     st.dataframe(df_mostrar[cols_mostrar].reset_index(drop=True),
                  use_container_width=True, height=400)
 
-    # Descargar datos filtrados
     csv_export = df_mostrar[cols_mostrar].to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button(
         label="⬇️ Descargar datos filtrados (CSV)",
