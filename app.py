@@ -18,6 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import io
+import base64
 from datetime import datetime
 
 # ── Configuración de página ───────────────────────────────────────
@@ -28,7 +29,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Tema visual: navy + gold (igual que mockup) ───────────────────
+# ── Tema visual: navy + gold ─────────────────────────────────────
 NAVY    = "#1A1F3C"
 NAVY_M  = "#252B4A"
 NAVY_L  = "#2D3561"
@@ -74,17 +75,7 @@ h1, h2, h3, h4 {{ color: {GOLD} !important; font-family: 'Calibri', sans-serif; 
 }}
 .stButton > button:hover {{ background-color: {GOLD_L}; }}
 
-/* Botón de descarga de plantilla en el sidebar - forzamos estilo */
-section[data-testid="stSidebar"] .stButton > button {{
-    background-color: {LIGHT_BROWN} !important;
-    color: {NAVY} !important;
-    border: 1px solid {GOLD} !important;
-}}
-section[data-testid="stSidebar"] .stButton > button:hover {{
-    background-color: #E0C090 !important;
-}}
-
-/* Expander "¿Cómo registrar los datos?" */
+/* Expander "¿Cómo registrar los datos?" (café claro) */
 section[data-testid="stSidebar"] [data-testid="stExpander"] {{
     background-color: {LIGHT_BROWN} !important;
     border-radius: 10px !important;
@@ -233,6 +224,44 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
+# ── Función para generar plantilla CSV ────────────────────────────
+def generar_plantilla():
+    ejemplo = pd.DataFrame([{
+        "id_pedido": "KAT-202501-001",
+        "fecha_pedido": "2025-01-15",
+        "nombre_cliente": "Carlos Martínez",
+        "canal": "WhatsApp",
+        "referencia": "Camisa Clásica Blanca",
+        "categoria": "Camisas",
+        "talla": "M",
+        "cantidad": 2,
+        "precio_unitario": 69900,
+        "costo_produccion": 32000,
+        "total_venta": 139800,
+        "margen_bruto": 75800,
+        "estado_pedido": "Entregado",
+        "fecha_entrega_comprometida": "2025-01-20",
+        "fecha_entrega_real": "2025-01-20",
+        "metodo_pago": "Nequi",
+        "notas": "",
+    }])
+    return ejemplo.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+
+# ── Botón de descarga personalizado (café claro) ──────────────────
+with st.sidebar:
+    csv_data = generar_plantilla()
+    b64 = base64.b64encode(csv_data).decode()
+    button_html = f'''
+    <a href="data:file/csv;base64,{b64}" download="plantilla_katrina.csv" 
+       style="display: block; width: 100%; background-color: {LIGHT_BROWN}; 
+              color: {NAVY}; text-align: center; padding: 8px 0; 
+              border-radius: 6px; text-decoration: none; font-weight: bold; 
+              border: 1px solid {GOLD}; transition: 0.2s; margin-bottom: 12px;">
+        📥 Descargar plantilla Excel
+    </a>
+    '''
+    st.markdown(button_html, unsafe_allow_html=True)
+
 # ── Cargar y unificar datos ───────────────────────────────────────
 @st.cache_data
 def cargar_archivos(archivos_bytes_lista):
@@ -274,28 +303,6 @@ def preparar_df(df):
         df["entregado_a_tiempo"] = df["dias_retraso"] <= 0
     return df
 
-def generar_plantilla():
-    ejemplo = pd.DataFrame([{
-        "id_pedido": "KAT-202501-001",
-        "fecha_pedido": "2025-01-15",
-        "nombre_cliente": "Carlos Martínez",
-        "canal": "WhatsApp",
-        "referencia": "Camisa Clásica Blanca",
-        "categoria": "Camisas",
-        "talla": "M",
-        "cantidad": 2,
-        "precio_unitario": 69900,
-        "costo_produccion": 32000,
-        "total_venta": 139800,
-        "margen_bruto": 75800,
-        "estado_pedido": "Entregado",
-        "fecha_entrega_comprometida": "2025-01-20",
-        "fecha_entrega_real": "2025-01-20",
-        "metodo_pago": "Nequi",
-        "notas": "",
-    }])
-    return ejemplo.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-
 # ── Contenido principal ───────────────────────────────────────────
 col_logo, col_titulo = st.columns([1, 5])
 with col_logo:
@@ -319,16 +326,6 @@ with col_titulo:
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<hr style='border-color:#2D3561; margin:10px 0 16px;'>", unsafe_allow_html=True)
-
-# Botón plantilla siempre visible (dentro del sidebar)
-with st.sidebar:
-    st.download_button(
-        label="📥 Descargar plantilla Excel",
-        data=generar_plantilla(),
-        file_name="plantilla_katrina.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
 
 # ── Sin archivos: pantalla de bienvenida ──────────────────────────
 if not archivos:
@@ -463,7 +460,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # TAB 1 — RESUMEN GENERAL
 # ══════════════════════════════════════════════════════════════════
 with tab1:
-    # KPIs
     total_ventas   = df_fe["total_venta"].sum()
     total_margen   = df_fe["margen_bruto"].sum()
     total_pedidos  = len(df_f)
@@ -475,57 +471,34 @@ with tab1:
 
     k1, k2, k3, k4, k5, k6 = st.columns(6)
     with k1:
-        st.metric("💰 Ventas totales", fmt_cop(total_ventas),
-                  help="Suma de total_venta para pedidos Entregados")
+        st.metric("💰 Ventas totales", fmt_cop(total_ventas))
     with k2:
-        st.metric("📈 Margen bruto", fmt_cop(total_margen),
-                  help="Ventas − Costo de producción")
+        st.metric("📈 Margen bruto", fmt_cop(total_margen))
     with k3:
         st.metric("% Margen", f"{margen_pct:.1f}%")
     with k4:
         st.metric("📦 Pedidos", f"{total_pedidos:,}")
     with k5:
-        st.metric("✅ Tasa entrega", f"{tasa_conv:.1f}%",
-                  delta=f"{cancelados} cancelados" if cancelados > 0 else None,
-                  delta_color="inverse")
+        st.metric("✅ Tasa entrega", f"{tasa_conv:.1f}%", delta=f"{cancelados} cancelados" if cancelados > 0 else None, delta_color="inverse")
     with k6:
         st.metric("🎫 Ticket promedio", fmt_cop(ticket_prom))
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Ventas por mes
     c_izq, c_der = st.columns([3, 2])
     with c_izq:
         if "mes_nombre" in df_fe.columns and not df_fe.empty:
-            orden_meses = sorted(df_fe["mes_nombre"].unique(),
-                                 key=lambda x: pd.to_datetime(x, format="%b %Y"))
+            orden_meses = sorted(df_fe["mes_nombre"].unique(), key=lambda x: pd.to_datetime(x, format="%b %Y"))
             vxm = (df_fe.groupby("mes_nombre", observed=True)
-                   .agg(ventas=("total_venta","sum"), margen=("margen_bruto","sum"),
-                        pedidos=("total_venta","count"))
+                   .agg(ventas=("total_venta","sum"), margen=("margen_bruto","sum"), pedidos=("total_venta","count"))
                    .reindex(orden_meses).reset_index())
-
             fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=vxm["mes_nombre"], y=vxm["ventas"],
-                name="Ventas", marker_color=GOLD,
-                text=[fmt_cop(v) for v in vxm["ventas"]],
-                textposition="outside", textfont=dict(size=9, color=WHITE),
-            ))
-            fig.add_trace(go.Bar(
-                x=vxm["mes_nombre"], y=vxm["margen"],
-                name="Margen", marker_color="#5B9BD5",
-            ))
-            fig.add_trace(go.Scatter(
-                x=vxm["mes_nombre"], y=vxm["pedidos"],
-                name="Pedidos", mode="lines+markers",
-                marker=dict(color=GREEN, size=8),
-                line=dict(color=GREEN, width=2),
-                yaxis="y2",
-            ))
-            fig.update_layout(
-                barmode="group", yaxis2=dict(overlaying="y", side="right",
-                showgrid=False, tickfont=dict(color=GREEN)),
-            )
+            fig.add_trace(go.Bar(x=vxm["mes_nombre"], y=vxm["ventas"], name="Ventas", marker_color=GOLD,
+                                 text=[fmt_cop(v) for v in vxm["ventas"]], textposition="outside", textfont=dict(size=9, color=WHITE)))
+            fig.add_trace(go.Bar(x=vxm["mes_nombre"], y=vxm["margen"], name="Margen", marker_color="#5B9BD5"))
+            fig.add_trace(go.Scatter(x=vxm["mes_nombre"], y=vxm["pedidos"], name="Pedidos", mode="lines+markers",
+                                     marker=dict(color=GREEN, size=8), line=dict(color=GREEN, width=2), yaxis="y2"))
+            fig.update_layout(barmode="group", yaxis2=dict(overlaying="y", side="right", showgrid=False, tickfont=dict(color=GREEN)))
             fig_layout(fig, "Ventas y Margen por Mes", 360)
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -535,40 +508,26 @@ with tab1:
         if "estado_pedido" in df_f.columns and not df_f.empty:
             estado_cnt = df_f["estado_pedido"].value_counts().reset_index()
             estado_cnt.columns = ["Estado", "Cantidad"]
-            colores_estado = {
-                "Entregado": GREEN, "Pendiente": GOLD, "Cancelado": RED,
-                "En producción": "#5B9BD5",
-            }
-            fig_d = go.Figure(go.Pie(
-                labels=estado_cnt["Estado"],
-                values=estado_cnt["Cantidad"],
-                hole=0.55,
-                marker_colors=[colores_estado.get(e, GRAY) for e in estado_cnt["Estado"]],
-                textfont=dict(color=WHITE, size=11),
-            ))
-            fig_d.add_annotation(
-                text=f"<b>{total_pedidos}</b><br><span style='font-size:10px'>pedidos</span>",
-                x=0.5, y=0.5, showarrow=False,
-                font=dict(size=18, color=WHITE),
-            )
+            colores_estado = {"Entregado": GREEN, "Pendiente": GOLD, "Cancelado": RED, "En producción": "#5B9BD5"}
+            fig_d = go.Figure(go.Pie(labels=estado_cnt["Estado"], values=estado_cnt["Cantidad"], hole=0.55,
+                                     marker_colors=[colores_estado.get(e, GRAY) for e in estado_cnt["Estado"]],
+                                     textfont=dict(color=WHITE, size=11)))
+            fig_d.add_annotation(text=f"<b>{total_pedidos}</b><br><span style='font-size:10px'>pedidos</span>",
+                                 x=0.5, y=0.5, showarrow=False, font=dict(size=18, color=WHITE))
             fig_layout(fig_d, "Estado de Pedidos", 360)
             st.plotly_chart(fig_d, use_container_width=True)
 
     if "mes_nombre" in df_fe.columns and not df_fe.empty:
         st.markdown(f"<h4 style='color:{GOLD};'>Resumen mensual</h4>", unsafe_allow_html=True)
-        orden_meses = sorted(df_fe["mes_nombre"].unique(),
-                             key=lambda x: pd.to_datetime(x, format="%b %Y"))
+        orden_meses = sorted(df_fe["mes_nombre"].unique(), key=lambda x: pd.to_datetime(x, format="%b %Y"))
         resumen_mes = (df_fe.groupby("mes_nombre", observed=True)
-                       .agg(
-                           Ventas=("total_venta","sum"),
-                           Margen=("margen_bruto","sum"),
-                           Pedidos=("total_venta","count"),
-                           Ticket_Prom=("total_venta","mean"),
-                       ).reindex(orden_meses).reset_index())
+                       .agg(Ventas=("total_venta","sum"), Margen=("margen_bruto","sum"),
+                            Pedidos=("total_venta","count"), Ticket_Prom=("total_venta","mean"))
+                       .reindex(orden_meses).reset_index())
         resumen_mes.columns = ["Mes","Ventas (COP)","Margen (COP)","Pedidos","Ticket Prom (COP)"]
         resumen_mes["Margen %"] = (resumen_mes["Margen (COP)"] / resumen_mes["Ventas (COP)"] * 100).round(1)
         for col in ["Ventas (COP)","Margen (COP)","Ticket Prom (COP)"]:
-            resumen_mes[col] = resumen_mes[col].apply(lambda x: fmt_cop(x))
+            resumen_mes[col] = resumen_mes[col].apply(fmt_cop)
         resumen_mes["Margen %"] = resumen_mes["Margen %"].apply(lambda x: f"{x:.1f}%")
         st.dataframe(resumen_mes, use_container_width=True, hide_index=True)
 
@@ -583,77 +542,44 @@ with tab2:
         with c1:
             if "referencia" in df_fe.columns:
                 top_ref = (df_fe.groupby("referencia", observed=True)
-                           .agg(ventas=("total_venta","sum"), unidades=("cantidad","sum"),
-                                margen=("margen_bruto","sum"))
+                           .agg(ventas=("total_venta","sum"), unidades=("cantidad","sum"), margen=("margen_bruto","sum"))
                            .sort_values("ventas", ascending=True).tail(9).reset_index())
-                fig_ref = go.Figure(go.Bar(
-                    x=top_ref["ventas"], y=top_ref["referencia"],
-                    orientation="h", marker_color=GOLD,
-                    text=[fmt_cop(v) for v in top_ref["ventas"]],
-                    textposition="outside", textfont=dict(size=9, color=WHITE),
-                ))
+                fig_ref = go.Figure(go.Bar(x=top_ref["ventas"], y=top_ref["referencia"], orientation="h", marker_color=GOLD,
+                                           text=[fmt_cop(v) for v in top_ref["ventas"]], textposition="outside", textfont=dict(size=9, color=WHITE)))
                 fig_layout(fig_ref, "Ventas por Referencia (COP)", 360)
                 st.plotly_chart(fig_ref, use_container_width=True)
-
         with c2:
             if "categoria" in df_fe.columns:
-                cat_v = (df_fe.groupby("categoria", observed=True)
-                         ["total_venta"].sum().reset_index())
-                fig_cat = go.Figure(go.Pie(
-                    labels=cat_v["categoria"], values=cat_v["total_venta"],
-                    hole=0.5,
-                    marker_colors=[GOLD, "#5B9BD5", GREEN],
-                    textfont=dict(color=WHITE, size=12),
-                ))
+                cat_v = df_fe.groupby("categoria", observed=True)["total_venta"].sum().reset_index()
+                fig_cat = go.Figure(go.Pie(labels=cat_v["categoria"], values=cat_v["total_venta"], hole=0.5,
+                                           marker_colors=[GOLD, "#5B9BD5", GREEN], textfont=dict(color=WHITE, size=12)))
                 fig_layout(fig_cat, "Ventas por Categoría", 360)
                 st.plotly_chart(fig_cat, use_container_width=True)
 
         c3, c4 = st.columns(2)
         with c3:
             if "referencia" in df_fe.columns:
-                marg_ref = (df_fe.groupby("referencia", observed=True)
-                            .agg(margen=("margen_bruto","sum"),
-                                 ventas=("total_venta","sum"))
-                            .reset_index())
+                marg_ref = df_fe.groupby("referencia", observed=True).agg(margen=("margen_bruto","sum"), ventas=("total_venta","sum")).reset_index()
                 marg_ref["margen_pct"] = (marg_ref["margen"] / marg_ref["ventas"] * 100).round(1)
                 marg_ref = marg_ref.sort_values("margen_pct", ascending=False)
-                colors_bar = [GREEN if m >= 40 else GOLD if m >= 30 else RED
-                              for m in marg_ref["margen_pct"]]
-                fig_marg = go.Figure(go.Bar(
-                    x=marg_ref["referencia"], y=marg_ref["margen_pct"],
-                    marker_color=colors_bar,
-                    text=[f"{m:.0f}%" for m in marg_ref["margen_pct"]],
-                    textposition="outside", textfont=dict(size=9, color=WHITE),
-                ))
-                fig_marg.add_hline(y=30, line=dict(color=GOLD, dash="dash", width=1.5),
-                                   annotation_text="Meta 30%",
-                                   annotation_font=dict(color=GOLD, size=10))
+                colors_bar = [GREEN if m >= 40 else GOLD if m >= 30 else RED for m in marg_ref["margen_pct"]]
+                fig_marg = go.Figure(go.Bar(x=marg_ref["referencia"], y=marg_ref["margen_pct"], marker_color=colors_bar,
+                                            text=[f"{m:.0f}%" for m in marg_ref["margen_pct"]], textposition="outside", textfont=dict(size=9, color=WHITE)))
+                fig_marg.add_hline(y=30, line=dict(color=GOLD, dash="dash", width=1.5), annotation_text="Meta 30%", annotation_font=dict(color=GOLD, size=10))
                 fig_layout(fig_marg, "Margen % por Referencia", 340)
                 fig_marg.update_xaxes(tickangle=-35)
                 st.plotly_chart(fig_marg, use_container_width=True)
-
         with c4:
             if "talla" in df_fe.columns:
-                talla_v = (df_fe.groupby("talla", observed=True)
-                           ["cantidad"].sum().reset_index()
-                           .sort_values("talla"))
-                fig_talla = go.Figure(go.Bar(
-                    x=talla_v["talla"], y=talla_v["cantidad"],
-                    marker_color=GOLD,
-                    text=talla_v["cantidad"], textposition="outside",
-                    textfont=dict(size=11, color=WHITE),
-                ))
+                talla_v = df_fe.groupby("talla", observed=True)["cantidad"].sum().reset_index().sort_values("talla")
+                fig_talla = go.Figure(go.Bar(x=talla_v["talla"], y=talla_v["cantidad"], marker_color=GOLD,
+                                             text=talla_v["cantidad"], textposition="outside", textfont=dict(size=11, color=WHITE)))
                 fig_layout(fig_talla, "Unidades Vendidas por Talla", 340)
                 st.plotly_chart(fig_talla, use_container_width=True)
 
         if "referencia" in df_fe.columns:
             st.markdown(f"<h4 style='color:{GOLD};'>Rentabilidad por Producto</h4>", unsafe_allow_html=True)
-            tabla_prod = (df_fe.groupby(["categoria","referencia"], observed=True)
-                          .agg(
-                              Unidades=("cantidad","sum"),
-                              Ventas=("total_venta","sum"),
-                              Margen=("margen_bruto","sum"),
-                          ).reset_index())
+            tabla_prod = df_fe.groupby(["categoria","referencia"], observed=True).agg(Unidades=("cantidad","sum"), Ventas=("total_venta","sum"), Margen=("margen_bruto","sum")).reset_index()
             tabla_prod["Margen %"] = (tabla_prod["Margen"] / tabla_prod["Ventas"] * 100).round(1)
             tabla_prod["Ventas"] = tabla_prod["Ventas"].apply(fmt_cop)
             tabla_prod["Margen"] = tabla_prod["Margen"].apply(fmt_cop)
@@ -671,58 +597,32 @@ with tab3:
         c1, c2 = st.columns(2)
         with c1:
             if "canal" in df_fe.columns:
-                canal_v = (df_fe.groupby("canal", observed=True)
-                           .agg(ventas=("total_venta","sum"),
-                                pedidos=("total_venta","count"))
-                           .sort_values("ventas", ascending=False).reset_index())
-                fig_canal = go.Figure(go.Bar(
-                    x=canal_v["canal"], y=canal_v["ventas"],
-                    marker_color=[GOLD,"#5B9BD5",GREEN,RED],
-                    text=[fmt_cop(v) for v in canal_v["ventas"]],
-                    textposition="outside", textfont=dict(size=9, color=WHITE),
-                ))
+                canal_v = df_fe.groupby("canal", observed=True).agg(ventas=("total_venta","sum"), pedidos=("total_venta","count")).sort_values("ventas", ascending=False).reset_index()
+                fig_canal = go.Figure(go.Bar(x=canal_v["canal"], y=canal_v["ventas"], marker_color=[GOLD,"#5B9BD5",GREEN,RED],
+                                             text=[fmt_cop(v) for v in canal_v["ventas"]], textposition="outside", textfont=dict(size=9, color=WHITE)))
                 fig_layout(fig_canal, "Ventas por Canal (COP)", 340)
                 st.plotly_chart(fig_canal, use_container_width=True)
-
         with c2:
             if "metodo_pago" in df_fe.columns:
-                pago_v = (df_fe.groupby("metodo_pago", observed=True)
-                          ["total_venta"].sum().reset_index())
-                fig_pago = go.Figure(go.Pie(
-                    labels=pago_v["metodo_pago"], values=pago_v["total_venta"],
-                    hole=0.5,
-                    marker_colors=[GOLD,"#5B9BD5",GREEN,"#AB47BC"],
-                    textfont=dict(color=WHITE, size=12),
-                ))
+                pago_v = df_fe.groupby("metodo_pago", observed=True)["total_venta"].sum().reset_index()
+                fig_pago = go.Figure(go.Pie(labels=pago_v["metodo_pago"], values=pago_v["total_venta"], hole=0.5,
+                                            marker_colors=[GOLD,"#5B9BD5",GREEN,"#AB47BC"], textfont=dict(color=WHITE, size=12)))
                 fig_layout(fig_pago, "Ventas por Método de Pago", 340)
                 st.plotly_chart(fig_pago, use_container_width=True)
 
         if "canal" in df_fe.columns and "mes_nombre" in df_fe.columns:
-            orden_meses = sorted(df_fe["mes_nombre"].unique(),
-                                 key=lambda x: pd.to_datetime(x, format="%b %Y"))
-            canal_mes = (df_fe.groupby(["mes_nombre","canal"], observed=True)
-                         ["total_venta"].sum().unstack(fill_value=0)
-                         .reindex(orden_meses))
+            orden_meses = sorted(df_fe["mes_nombre"].unique(), key=lambda x: pd.to_datetime(x, format="%b %Y"))
+            canal_mes = df_fe.groupby(["mes_nombre","canal"], observed=True)["total_venta"].sum().unstack(fill_value=0).reindex(orden_meses)
             fig_evo = go.Figure()
             for idx, col_name in enumerate(canal_mes.columns):
-                fig_evo.add_trace(go.Scatter(
-                    x=canal_mes.index, y=canal_mes[col_name],
-                    name=col_name, mode="lines+markers",
-                    line=dict(color=COLORES_SERIE[idx % len(COLORES_SERIE)], width=2),
-                    marker=dict(size=7),
-                ))
+                fig_evo.add_trace(go.Scatter(x=canal_mes.index, y=canal_mes[col_name], name=col_name, mode="lines+markers",
+                                             line=dict(color=COLORES_SERIE[idx % len(COLORES_SERIE)], width=2), marker=dict(size=7)))
             fig_layout(fig_evo, "Evolución de Ventas por Canal y Mes", 320)
             st.plotly_chart(fig_evo, use_container_width=True)
 
         if "canal" in df_fe.columns:
             st.markdown(f"<h4 style='color:{GOLD};'>Detalle por Canal</h4>", unsafe_allow_html=True)
-            canal_det = (df_fe.groupby("canal", observed=True)
-                         .agg(
-                             Pedidos=("total_venta","count"),
-                             Ventas=("total_venta","sum"),
-                             Margen=("margen_bruto","sum"),
-                             Ticket_Prom=("total_venta","mean"),
-                         ).reset_index())
+            canal_det = df_fe.groupby("canal", observed=True).agg(Pedidos=("total_venta","count"), Ventas=("total_venta","sum"), Margen=("margen_bruto","sum"), Ticket_Prom=("total_venta","mean")).reset_index()
             canal_det["Participación %"] = (canal_det["Ventas"] / canal_det["Ventas"].sum() * 100).round(1)
             for col in ["Ventas","Margen","Ticket_Prom"]:
                 canal_det[col] = canal_det[col].apply(fmt_cop)
@@ -739,54 +639,33 @@ with tab4:
         if "fecha_pedido" in df_f.columns and not df_f.empty:
             df_f["dia_semana"] = df_f["fecha_pedido"].dt.day_name()
             orden_dias = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-            dias_esp   = {"Monday":"Lunes","Tuesday":"Martes","Wednesday":"Miércoles",
-                          "Thursday":"Jueves","Friday":"Viernes","Saturday":"Sábado","Sunday":"Domingo"}
-            dias_v = (df_f.groupby("dia_semana")["id_pedido"].count()
-                      .reindex(orden_dias).fillna(0).reset_index())
+            dias_esp = {"Monday":"Lunes","Tuesday":"Martes","Wednesday":"Miércoles","Thursday":"Jueves","Friday":"Viernes","Saturday":"Sábado","Sunday":"Domingo"}
+            dias_v = df_f.groupby("dia_semana")["id_pedido"].count().reindex(orden_dias).fillna(0).reset_index()
             dias_v["dia_esp"] = dias_v["dia_semana"].map(dias_esp)
-            fig_dias = go.Figure(go.Bar(
-                x=dias_v["dia_esp"], y=dias_v["id_pedido"],
-                marker_color=GOLD,
-                text=dias_v["id_pedido"].astype(int),
-                textposition="outside", textfont=dict(color=WHITE, size=10),
-            ))
+            fig_dias = go.Figure(go.Bar(x=dias_v["dia_esp"], y=dias_v["id_pedido"], marker_color=GOLD,
+                                        text=dias_v["id_pedido"].astype(int), textposition="outside", textfont=dict(color=WHITE, size=10)))
             fig_layout(fig_dias, "Pedidos por Día de la Semana", 320)
             st.plotly_chart(fig_dias, use_container_width=True)
-
     with c2:
         if "entregado_a_tiempo" in df_fe.columns and not df_fe.empty:
-            a_tiempo    = df_fe["entregado_a_tiempo"].sum()
+            a_tiempo = df_fe["entregado_a_tiempo"].sum()
             con_retraso = (~df_fe["entregado_a_tiempo"]).sum()
-            fig_puntual = go.Figure(go.Pie(
-                labels=["A tiempo","Con retraso"],
-                values=[a_tiempo, con_retraso],
-                hole=0.55,
-                marker_colors=[GREEN, RED],
-                textfont=dict(color=WHITE, size=13),
-            ))
+            fig_puntual = go.Figure(go.Pie(labels=["A tiempo","Con retraso"], values=[a_tiempo, con_retraso], hole=0.55,
+                                           marker_colors=[GREEN, RED], textfont=dict(color=WHITE, size=13)))
             pct_tiempo = pct(a_tiempo, a_tiempo + con_retraso)
-            fig_puntual.add_annotation(
-                text=f"<b>{pct_tiempo:.0f}%</b><br><span style='font-size:10px'>a tiempo</span>",
-                x=0.5, y=0.5, showarrow=False,
-                font=dict(size=18, color=WHITE),
-            )
+            fig_puntual.add_annotation(text=f"<b>{pct_tiempo:.0f}%</b><br><span style='font-size:10px'>a tiempo</span>",
+                                       x=0.5, y=0.5, showarrow=False, font=dict(size=18, color=WHITE))
             fig_layout(fig_puntual, "Puntualidad de Entregas", 320)
             st.plotly_chart(fig_puntual, use_container_width=True)
         else:
             st.info("Necesitas columnas 'fecha_entrega_comprometida' y 'fecha_entrega_real' para ver puntualidad.")
 
     if "dias_retraso" in df_fe.columns and "referencia" in df_fe.columns and not df_fe.empty:
-        retraso_ref = (df_fe.groupby("referencia", observed=True)["dias_retraso"]
-                       .mean().reset_index().sort_values("dias_retraso", ascending=False))
+        retraso_ref = df_fe.groupby("referencia", observed=True)["dias_retraso"].mean().reset_index().sort_values("dias_retraso", ascending=False)
         retraso_ref["dias_retraso"] = retraso_ref["dias_retraso"].round(1)
-        colores_ret = [RED if d > 1 else GOLD if d > 0 else GREEN
-                       for d in retraso_ref["dias_retraso"]]
-        fig_ret = go.Figure(go.Bar(
-            x=retraso_ref["referencia"], y=retraso_ref["dias_retraso"],
-            marker_color=colores_ret,
-            text=[f"{d:.1f}d" for d in retraso_ref["dias_retraso"]],
-            textposition="outside", textfont=dict(size=9, color=WHITE),
-        ))
+        colores_ret = [RED if d > 1 else GOLD if d > 0 else GREEN for d in retraso_ref["dias_retraso"]]
+        fig_ret = go.Figure(go.Bar(x=retraso_ref["referencia"], y=retraso_ref["dias_retraso"], marker_color=colores_ret,
+                                   text=[f"{d:.1f}d" for d in retraso_ref["dias_retraso"]], textposition="outside", textfont=dict(size=9, color=WHITE)))
         fig_ret.add_hline(y=0, line=dict(color=GREEN, dash="dash", width=1.5))
         fig_layout(fig_ret, "Retraso Promedio por Referencia (días)", 300)
         fig_ret.update_xaxes(tickangle=-35)
@@ -805,35 +684,24 @@ with tab4:
         st.metric("❌ Pedidos cancelados", f"{cancelados_f}")
     with ko4:
         if "cantidad" in df_fe.columns and not df_fe.empty:
-            prom_cant = df_fe["cantidad"].mean()
-            st.metric("📦 Unidades/pedido", f"{prom_cant:.1f}")
+            st.metric("📦 Unidades/pedido", f"{df_fe['cantidad'].mean():.1f}")
 
 # ══════════════════════════════════════════════════════════════════
 # TAB 5 — DATOS CRUDOS
 # ══════════════════════════════════════════════════════════════════
 with tab5:
-    st.markdown(f"<h4 style='color:{GOLD};'>Tabla de datos ({len(df_f):,} registros)</h4>",
-                unsafe_allow_html=True)
-
-    buscar = st.text_input("🔍 Buscar (cliente, referencia, canal...)", placeholder="Escribir para filtrar...",
-                           label_visibility="collapsed")
+    st.markdown(f"<h4 style='color:{GOLD};'>Tabla de datos ({len(df_f):,} registros)</h4>", unsafe_allow_html=True)
+    buscar = st.text_input("🔍 Buscar (cliente, referencia, canal...)", placeholder="Escribir para filtrar...", label_visibility="collapsed")
     if buscar:
         mask = df_f.astype(str).apply(lambda col: col.str.contains(buscar, case=False)).any(axis=1)
         df_mostrar = df_f[mask]
     else:
         df_mostrar = df_f
-
     cols_mostrar = [c for c in df_mostrar.columns if not c.startswith("_")]
-    st.dataframe(df_mostrar[cols_mostrar].reset_index(drop=True),
-                 use_container_width=True, height=400)
-
+    st.dataframe(df_mostrar[cols_mostrar].reset_index(drop=True), use_container_width=True, height=400)
     csv_export = df_mostrar[cols_mostrar].to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    st.download_button(
-        label="⬇️ Descargar datos filtrados (CSV)",
-        data=csv_export,
-        file_name=f"katrina_datos_filtrados_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
-    )
+    st.download_button(label="⬇️ Descargar datos filtrados (CSV)", data=csv_export,
+                       file_name=f"katrina_datos_filtrados_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
 
 # ── Footer ────────────────────────────────────────────────────────
 st.markdown(f"""
