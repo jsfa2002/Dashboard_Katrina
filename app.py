@@ -379,10 +379,19 @@ with T5:
 
         ia1,ia2,ia3,ia4=st.tabs(["📈 Predicción de Ventas","🏷️ Clasificación ABC","👥 Segmentación Clientes","🎯 Recomendaciones"])
 
-        # ── IA1: PREDICCIÓN DE VENTAS ─────────────────────────
+        # ── IA1: PREDICCIÓN DE VENTAS (con selector de horizonte) ─────────
         with ia1:
-            st.markdown(f"<h4 style='color:{N(GOLD)};'>Predicción de Ventas — Próximos 3 Meses</h4>", unsafe_allow_html=True)
+            st.markdown(f"<h4 style='color:{N(GOLD)};'>Predicción de Ventas — Próximos meses</h4>", unsafe_allow_html=True)
             st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;'>Modelo: Regresión Polinomial grado {'2' if nm>=4 else '1'} entrenado con los {nm} meses disponibles. Con más historial la predicción mejora.</p>", unsafe_allow_html=True)
+
+            # Selector de horizonte de predicción (1, 2 o 3 meses)
+            horizonte = st.radio(
+                "📅 ¿Cuántos meses deseas predecir?",
+                options=[1, 2, 3],
+                index=2,  # por defecto 3
+                horizontal=True,
+                help="Selecciona el número de meses hacia adelante que quieres proyectar."
+            )
 
             serie=(df_fe.groupby("mes_nombre",observed=True)["total_venta"].sum().reindex(om_ia).reset_index())
             serie.columns=["mes","v"]; serie["t"]=np.arange(len(serie))
@@ -391,14 +400,21 @@ with T5:
             modelo=make_pipeline(PolynomialFeatures(grado),LinearRegression()); modelo.fit(X,y)
 
             ult=pd.to_datetime(om_ia[-1],format="%b %Y")
-            mf=[(ult+pd.DateOffset(months=i+1)).strftime("%b %Y") for i in range(3)]
-            tf=np.arange(nm,nm+3).reshape(-1,1)
+            # Generar los meses según el horizonte elegido
+            mf=[(ult+pd.DateOffset(months=i+1)).strftime("%b %Y") for i in range(horizonte)]
+            tf=np.arange(nm, nm+horizonte).reshape(-1,1)
             ph=modelo.predict(X); pf=np.maximum(modelo.predict(tf),0)
             ic_lo=pf*0.85; ic_hi=pf*1.15
 
-            pi1,pi2,pi3=st.columns(3)
-            for i,(col,mes) in enumerate(zip([pi1,pi2,pi3],mf)):
-                with col: st.metric(f"📅 {mes} (est.)",fmt(pf[i]),delta=f"{((pf[i]/y[-1])-1)*100:.1f}% vs {om_ia[-1]}" if i==0 else None)
+            # Mostrar métricas en columnas dinámicas
+            cols_pred = st.columns(horizonte)
+            for i, col in enumerate(cols_pred):
+                with col:
+                    st.metric(
+                        f"📅 {mf[i]} (est.)",
+                        fmt(pf[i]),
+                        delta=f"{((pf[i]/y[-1])-1)*100:.1f}% vs {om_ia[-1]}" if i==0 else None
+                    )
 
             st.markdown("<br>", unsafe_allow_html=True)
             fig_p=go.Figure()
@@ -408,19 +424,26 @@ with T5:
             fig_p.add_trace(go.Scatter(x=mf+mf[::-1],y=list(ic_hi)+list(ic_lo[::-1]),fill="toself",fillcolor="rgba(39,174,96,0.12)",line=dict(color="rgba(0,0,0,0)"),name="Intervalo ±15%"))
             fig_p.add_vline(x=om_ia[-1],line=dict(color=N(GRAY),dash="dash",width=1))
             fig_p.add_annotation(x=mf[0],y=float(max(y))*1.05,text="Proyección →",showarrow=False,font=dict(color=N(GREEN),size=11))
-            fl(fig_p,"Histórico + Predicción Próximos 3 Meses (COP)",420)
+            fl(fig_p,f"Histórico + Predicción Próximos {horizonte} Mes{'es' if horizonte>1 else ''} (COP)",420)
             fig_p.update_yaxes(tickformat=",.0f",tickprefix="$")
             st.plotly_chart(fig_p,use_container_width=True)
 
-            st.markdown(f"<h4 style='color:{N(GOLD)};'>Tabla de Predicción</h4>", unsafe_allow_html=True)
-            df_pt=pd.DataFrame({"Mes":mf,"Proyectado":[fmt(v) for v in pf],"Mínimo -15%":[fmt(v) for v in ic_lo],"Máximo +15%":[fmt(v) for v in ic_hi],"Δ vs último mes":[f"{((v/y[-1])-1)*100:.1f}%" for v in pf]})
+            st.markdown(f"<h4 style='color:{N(GOLD)};'>Tabla de Predicción ({horizonte} mes{'es' if horizonte>1 else ''})</h4>", unsafe_allow_html=True)
+            df_pt=pd.DataFrame({
+                "Mes":mf,
+                "Proyectado":[fmt(v) for v in pf],
+                "Mínimo -15%":[fmt(v) for v in ic_lo],
+                "Máximo +15%":[fmt(v) for v in ic_hi],
+                "Δ vs último mes":[f"{((v/y[-1])-1)*100:.1f}%" for v in pf]
+            })
             st.dataframe(df_pt,use_container_width=True,hide_index=True)
 
-            # Predicción pedidos
+            # Predicción de pedidos
             sp=df_fe.groupby("mes_nombre",observed=True).size().reindex(om_ia).reset_index(); sp.columns=["mes","p"]
             mp=make_pipeline(PolynomialFeatures(grado),LinearRegression()); mp.fit(X,sp["p"].values)
             pp=np.maximum(mp.predict(tf),0).astype(int)
-            st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;margin-top:10px;'>📦 Pedidos estimados: <b style='color:{N(WHITE)};'>{pp[0]}</b> ({mf[0]}) · <b style='color:{N(WHITE)};'>{pp[1]}</b> ({mf[1]}) · <b style='color:{N(WHITE)};'>{pp[2]}</b> ({mf[2]})</p>", unsafe_allow_html=True)
+            texto_pedidos = " · ".join([f"<b>{pp[i]}</b> ({mf[i]})" for i in range(horizonte)])
+            st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;margin-top:10px;'>📦 Pedidos estimados: {texto_pedidos}</p>", unsafe_allow_html=True)
 
             st.markdown(f"""<div style='background:{N(NAVY_M)};border-radius:8px;padding:12px 16px;margin-top:12px;border-left:3px solid {N(PURPLE)};'>
                 <span style='color:{N(PURPLE)};font-weight:bold;font-size:12px;'>ℹ️ Nota sobre el modelo</span><br>
