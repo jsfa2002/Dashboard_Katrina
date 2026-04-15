@@ -4,7 +4,7 @@ Almacén Fábrica Sacos y Suéteres Katrina
 =========================================
 Desarrollado por Innovarte Consulting
 
-pip install streamlit pandas numpy plotly openpyxl scikit-learn xgboost optuna tensorflow
+pip install streamlit pandas numpy plotly openpyxl scikit-learn xgboost optuna
 streamlit run app.py
 """
 
@@ -15,18 +15,14 @@ import plotly.graph_objects as go
 import io, base64, warnings
 from datetime import datetime
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures, StandardScaler, MinMaxScaler
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.cluster import KMeans
 from sklearn.metrics import mean_absolute_error
 import xgboost as xgb
 import optuna
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 warnings.filterwarnings("ignore")
-tf.get_logger().setLevel('ERROR')
 
 st.set_page_config(page_title="Katrina Dashboard", page_icon="👔", layout="wide", initial_sidebar_state="expanded")
 
@@ -379,23 +375,23 @@ with T5:
             <span style='color:{N(PURPLE)};font-size:18px;font-weight:bold;margin-left:10px;'>Motor de IA — Predictivo & Prescriptivo</span><br>
             <span style='color:{N(GRAY)};font-size:12px;'>
                 Análisis sobre <b style='color:{N(WHITE)};'>{nm} meses</b> de datos ·
-                Regresión Polinomial · XGBoost · LSTM · Clasificación ABC · Clustering K‑Means
+                Regresión Polinomial · XGBoost · Clasificación ABC · Clustering K‑Means
             </span>
         </div>""", unsafe_allow_html=True)
 
         ia1,ia2,ia3,ia4=st.tabs(["📈 Predicción de Ventas","🏷️ Clasificación ABC","👥 Segmentación Clientes","🎯 Recomendaciones"])
 
-        # ── IA1: PREDICCIÓN DE VENTAS (Múltiples modelos) ──────────────
+        # ── IA1: PREDICCIÓN DE VENTAS (con XGBoost y Regresión) ──────────────
         with ia1:
             st.markdown(f"<h4 style='color:{N(GOLD)};'>Predicción Avanzada de Ventas</h4>", unsafe_allow_html=True)
-            st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;'>Selecciona el modelo y el horizonte de predicción.</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;'>Selecciona el modelo y el horizonte de predicción. (LSTM no disponible por compatibilidad con Python 3.14)</p>", unsafe_allow_html=True)
 
             # Controles
             col_mod, col_hor = st.columns(2)
             with col_mod:
                 modelo_pred = st.selectbox(
                     "🤖 Modelo",
-                    ["Regresión Polinomial (base)", "XGBoost con Optuna", "LSTM (Deep Learning)"],
+                    ["Regresión Polinomial (base)", "XGBoost con Optuna"],
                     key="modelo_pred"
                 )
             with col_hor:
@@ -427,8 +423,6 @@ with T5:
                 pf = np.maximum(modelo.predict(tf), 0)
                 ic_lo = pf * 0.85
                 ic_hi = pf * 1.15
-
-                st.info("Modelo de regresión polinomial – sirve como línea base.")
                 mae_val = None
 
             # --- XGBoost con Optuna ---
@@ -505,56 +499,6 @@ with T5:
                 mae_val = study.best_value
                 st.success(f"✅ XGBoost optimizado con Optuna (MAE en validación: ${mae_val:,.0f})")
 
-            # --- LSTM (Deep Learning) ---
-            elif modelo_pred == "LSTM (Deep Learning)":
-                if nm < 6:
-                    st.warning("LSTM requiere al menos 6 meses de datos para un entrenamiento razonable. Cambia a otro modelo.")
-                    st.stop()
-
-                scaler = MinMaxScaler()
-                scaled_vals = scaler.fit_transform(serie[['ventas']].values)
-
-                def create_sequences(data, seq_len=3):
-                    Xs, ys = [], []
-                    for i in range(len(data)-seq_len):
-                        Xs.append(data[i:i+seq_len])
-                        ys.append(data[i+seq_len])
-                    return np.array(Xs), np.array(ys)
-
-                seq_len = 3
-                X_seq, y_seq = create_sequences(scaled_vals, seq_len)
-                split = int(0.8 * len(X_seq))
-                X_train, X_test = X_seq[:split], X_seq[split:]
-                y_train, y_test = y_seq[:split], y_seq[split:]
-
-                model = Sequential([
-                    LSTM(50, activation='relu', return_sequences=True, input_shape=(seq_len, 1)),
-                    Dropout(0.2),
-                    LSTM(50, activation='relu'),
-                    Dropout(0.2),
-                    Dense(1)
-                ])
-                model.compile(optimizer='adam', loss='mse')
-
-                with st.spinner("Entrenando red LSTM (puede tomar hasta 1 minuto)..."):
-                    model.fit(X_train, y_train, epochs=30, batch_size=4, validation_data=(X_test, y_test), verbose=0)
-
-                # Predicción recursiva
-                last_seq = scaled_vals[-seq_len:].reshape(1, seq_len, 1)
-                preds_scaled = []
-                for _ in range(horizonte):
-                    pred = model.predict(last_seq, verbose=0)[0,0]
-                    preds_scaled.append(pred)
-                    last_seq = np.roll(last_seq, -1, axis=1)
-                    last_seq[0, -1, 0] = pred
-
-                pf = scaler.inverse_transform(np.array(preds_scaled).reshape(-1,1)).flatten()
-                ic_lo = pf * 0.85
-                ic_hi = pf * 1.15
-                ult = pd.to_datetime(om_ia[-1], format="%b %Y")
-                mf = [(ult + pd.DateOffset(months=i+1)).strftime("%b %Y") for i in range(horizonte)]
-                st.success("✅ Modelo LSTM entrenado correctamente.")
-
             # --- Mostrar resultados (común a todos los modelos) ---
             cols_pred = st.columns(horizonte)
             for i, col in enumerate(cols_pred):
@@ -602,10 +546,9 @@ with T5:
             })
             st.dataframe(df_pred, use_container_width=True, hide_index=True)
 
-            # Predicción de pedidos (solo para regresión polinomial, opcional)
+            # Predicción de pedidos (usando regresión polinomial)
             st.markdown("---")
             st.markdown(f"<h4 style='color:{N(GOLD)};'>Predicción de número de pedidos</h4>", unsafe_allow_html=True)
-            # Usar mismo modelo base polinomial para pedidos (para simplificar)
             sp = df_fe.groupby("mes_nombre", observed=True).size().reindex(om_ia).reset_index()
             sp.columns = ["mes", "pedidos"]
             sp["t"] = np.arange(len(sp))
@@ -621,10 +564,10 @@ with T5:
 
             st.markdown(f"""<div style='background:{N(NAVY_M)};border-radius:8px;padding:12px 16px;margin-top:12px;border-left:3px solid {N(PURPLE)};'>
                 <span style='color:{N(PURPLE)};font-weight:bold;font-size:12px;'>ℹ️ Nota</span><br>
-                <span style='color:{N(GRAY)};font-size:11px;'>Los modelos XGBoost y LSTM requieren más datos históricos para ser precisos. Cuantos más meses tengas, mejor será la predicción. El intervalo ±15% es una estimación de incertidumbre.</span>
+                <span style='color:{N(GRAY)};font-size:11px;'>XGBoost requiere al menos 4 meses de datos. El intervalo ±15% es una estimación de incertidumbre. LSTM no está disponible temporalmente por incompatibilidad con Python 3.14.</span>
             </div>""", unsafe_allow_html=True)
 
-        # ── IA2: CLASIFICACIÓN ABC ────────────────────────────
+        # ── IA2: CLASIFICACIÓN ABC (igual que antes) ────────────
         with ia2:
             st.markdown(f"<h4 style='color:{N(GOLD)};'>Análisis ABC de Productos (Principio de Pareto)</h4>", unsafe_allow_html=True)
             st.markdown(f"""<p style='color:{N(GRAY)};font-size:12px;'>
@@ -678,7 +621,7 @@ with T5:
                 at.columns=["Referencia","Clase","Ventas (COP)","Unidades","Margen %","% Acumulado","Pedidos"]
                 st.dataframe(at,use_container_width=True,hide_index=True)
 
-        # ── IA3: SEGMENTACIÓN K-MEANS ─────────────────────────
+        # ── IA3: SEGMENTACIÓN K-MEANS (igual que antes) ─────────
         with ia3:
             st.markdown(f"<h4 style='color:{N(GOLD)};'>Segmentación de Clientes — Clustering K-Means</h4>", unsafe_allow_html=True)
             st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;'>Agrupa automáticamente a los clientes según frecuencia de compra, gasto total y ticket promedio usando el algoritmo K-Means (scikit-learn).</p>", unsafe_allow_html=True)
@@ -724,7 +667,7 @@ with T5:
                 tc=tc.rename(columns={"nombre_cliente":"Cliente","freq":"Pedidos","segmento":"Segmento","gasto":"Gasto Total","ticket":"Ticket Prom","margen":"Margen Total"})[["Cliente","Segmento","Pedidos","Gasto Total","Ticket Prom","Margen Total"]]
                 st.dataframe(tc,use_container_width=True,hide_index=True)
 
-        # ── IA4: RECOMENDACIONES PRESCRIPTIVAS ────────────────
+        # ── IA4: RECOMENDACIONES PRESCRIPTIVAS (igual que antes) ─
         with ia4:
             st.markdown(f"<h4 style='color:{N(GOLD)};'>Motor Prescriptivo — Recomendaciones Automáticas</h4>", unsafe_allow_html=True)
             st.markdown(f"<p style='color:{N(GRAY)};font-size:12px;'>El motor analiza automáticamente los KPIs y genera acciones concretas priorizadas para mejorar el negocio.</p>", unsafe_allow_html=True)
