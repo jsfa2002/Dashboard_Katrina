@@ -261,7 +261,7 @@ if df_raw is None or df_raw.empty: st.warning("No se pudieron leer datos validos
 df_base=prep(df_raw)
 
 # Guardar bytes originales por archivo para descargas individuales
-archivos_bytes = {f.name: b for f.name, b in ab}
+archivos_bytes = dict(ab)
 
 with st.expander(f"{len(noms)} archivo(s) cargado(s) — {len(df_base):,} registros totales", expanded=False):
     ca,cb=st.columns(2)
