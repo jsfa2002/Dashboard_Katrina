@@ -12,7 +12,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import io, base64, warnings
+import io, base64, warnings, zipfile
 from datetime import datetime
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
@@ -152,6 +152,92 @@ def prep(df):
         df["entregado_a_tiempo"]=df["dias_retraso"]<=0
     return df
 
+# ── Funcion de limpieza reutilizable ──
+def aplicar_limpieza(df_input, opciones):
+    """
+    Aplica las transformaciones de limpieza a un dataframe.
+    Retorna (df_limpio, log_mensajes)
+    """
+    df_clean = df_input.copy()
+    cols_utiles = [c for c in df_clean.columns if not c.startswith("_")]
+    log = []
+
+    op_dup        = opciones.get("op_dup", True)
+    op_nulos_fecha= opciones.get("op_nulos_fecha", True)
+    op_negativos  = opciones.get("op_negativos", True)
+    op_strip      = opciones.get("op_strip", True)
+    op_nulos_ref  = opciones.get("op_nulos_ref", False)
+    op_nulos_canal= opciones.get("op_nulos_canal", False)
+    op_nulos_estado=opciones.get("op_nulos_estado", False)
+    op_calcular_margen=opciones.get("op_calcular_margen", False)
+    rango_venta   = opciones.get("rango_venta", None)
+    rango_cant    = opciones.get("rango_cant", None)
+    rango_fecha   = opciones.get("rango_fecha", None)
+    mapeos        = opciones.get("mapeos", {})
+
+    if op_dup:
+        antes=len(df_clean)
+        df_clean=df_clean.drop_duplicates(subset=[c for c in cols_utiles if c not in ["id_pedido","_src"]],keep="first")
+        elim=antes-len(df_clean)
+        if elim: log.append(f"Duplicados eliminados: {elim} filas.")
+
+    if op_nulos_fecha and "fecha_pedido" in df_clean.columns:
+        antes=len(df_clean); df_clean=df_clean[df_clean["fecha_pedido"].notna()]
+        elim=antes-len(df_clean)
+        if elim: log.append(f"Filas sin fecha valida eliminadas: {elim}.")
+
+    if op_negativos:
+        antes=len(df_clean)
+        for c in ["total_venta","cantidad"]:
+            if c in df_clean.columns: df_clean=df_clean[df_clean[c]>=0]
+        elim=antes-len(df_clean)
+        if elim: log.append(f"Filas con valores negativos eliminadas: {elim}.")
+
+    if op_strip:
+        for c in ["referencia","canal","categoria","estado_pedido","metodo_pago","talla","nombre_cliente"]:
+            if c in df_clean.columns: df_clean[c]=df_clean[c].astype(str).str.strip().str.title()
+        log.append("Texto estandarizado (strip + Title Case).")
+
+    if op_nulos_ref and "referencia" in df_clean.columns:
+        n=df_clean["referencia"].isna().sum(); df_clean["referencia"]=df_clean["referencia"].fillna("Sin Referencia")
+        if n: log.append(f"Referencias vacias rellenadas: {n}.")
+
+    if op_nulos_canal and "canal" in df_clean.columns:
+        n=df_clean["canal"].isna().sum(); df_clean["canal"]=df_clean["canal"].fillna("Presencial")
+        if n: log.append(f"Canales vacios rellenados: {n}.")
+
+    if op_nulos_estado and "estado_pedido" in df_clean.columns:
+        n=df_clean["estado_pedido"].isna().sum(); df_clean["estado_pedido"]=df_clean["estado_pedido"].fillna("Pendiente")
+        if n: log.append(f"Estados vacios rellenados: {n}.")
+
+    if op_calcular_margen:
+        cond=["precio_unitario","costo_produccion","cantidad","margen_bruto"]
+        if all(c in df_clean.columns for c in cond):
+            mask=df_clean["margen_bruto"]==0
+            df_clean.loc[mask,"margen_bruto"]=(df_clean.loc[mask,"precio_unitario"]-df_clean.loc[mask,"costo_produccion"])*df_clean.loc[mask,"cantidad"]
+            if mask.sum(): log.append(f"Margen recalculado en {mask.sum()} filas.")
+
+    if rango_venta and "total_venta" in df_clean.columns:
+        antes=len(df_clean); df_clean=df_clean[(df_clean["total_venta"]>=rango_venta[0])&(df_clean["total_venta"]<=rango_venta[1])]
+        elim=antes-len(df_clean)
+        if elim: log.append(f"Filas fuera del rango de venta eliminadas: {elim}.")
+
+    if rango_cant and "cantidad" in df_clean.columns:
+        antes=len(df_clean); df_clean=df_clean[(df_clean["cantidad"]>=rango_cant[0])&(df_clean["cantidad"]<=rango_cant[1])]
+        elim=antes-len(df_clean)
+        if elim: log.append(f"Filas fuera del rango de cantidad eliminadas: {elim}.")
+
+    if rango_fecha and "fecha_pedido" in df_clean.columns and len(rango_fecha)==2:
+        antes=len(df_clean); df_clean=df_clean[(df_clean["fecha_pedido"]>=pd.Timestamp(rango_fecha[0]))&(df_clean["fecha_pedido"]<=pd.Timestamp(rango_fecha[1]))]
+        elim=antes-len(df_clean)
+        if elim: log.append(f"Filas fuera del rango de fechas eliminadas: {elim}.")
+
+    for col,mapa in mapeos.items():
+        if col in df_clean.columns and mapa:
+            df_clean[col]=df_clean[col].replace(mapa); log.append(f"Columna '{col}': {len(mapa)} valor(es) reemplazado(s).")
+
+    return df_clean, log
+
 # ── Header ──
 cl,ct=st.columns([1,5])
 with cl:
@@ -174,6 +260,9 @@ for e in errs: st.error(f"Error: {e}")
 if df_raw is None or df_raw.empty: st.warning("No se pudieron leer datos validos."); st.stop()
 df_base=prep(df_raw)
 
+# Guardar bytes originales por archivo para descargas individuales
+archivos_bytes = {f.name: b for f.name, b in ab}
+
 with st.expander(f"{len(noms)} archivo(s) cargado(s) — {len(df_base):,} registros totales", expanded=False):
     ca,cb=st.columns(2)
     with ca:
@@ -186,6 +275,7 @@ with st.expander(f"{len(noms)} archivo(s) cargado(s) — {len(df_base):,} regist
 
 if "df_limpio" not in st.session_state: st.session_state["df_limpio"]=None
 if "limpieza_aprobada" not in st.session_state: st.session_state["limpieza_aprobada"]=False
+if "dfs_por_archivo" not in st.session_state: st.session_state["dfs_por_archivo"]={}
 
 T0,T1,T2,T3,T4,T5,T6=st.tabs(["Limpieza y Transformacion","Resumen General","Productos","Canales y Pagos","Operaciones","IA Predictiva y Prescriptiva","Datos Crudos"])
 
@@ -193,18 +283,35 @@ T0,T1,T2,T3,T4,T5,T6=st.tabs(["Limpieza y Transformacion","Resumen General","Pro
 # TAB 0 — LIMPIEZA Y TRANSFORMACION
 # ═══════════════════════════════════
 with T0:
-    st.markdown(f"<div style='background:linear-gradient(135deg,{N(NAVY_M)},{N(NAVY_L)});border-radius:12px;padding:18px 22px;border-left:4px solid {N(TEAL)};margin-bottom:18px;'><span style='color:{N(TEAL)};font-size:18px;font-weight:bold;'>Limpieza y Transformacion de Datos</span><br><span style='color:{N(GRAY)};font-size:12px;'>Revisa y corrige los datos antes de analizarlos. Cuando estes conforme, aprueba los datos limpios para activar el resto del dashboard.</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='background:linear-gradient(135deg,{N(NAVY_M)},{N(NAVY_L)});border-radius:12px;padding:18px 22px;border-left:4px solid {N(TEAL)};margin-bottom:18px;'><span style='color:{N(TEAL)};font-size:18px;font-weight:bold;'>Limpieza y Transformacion de Datos</span><br><span style='color:{N(GRAY)};font-size:12px;'>Las transformaciones se aplican a TODOS los archivos cargados de forma unificada. Al aprobar, el dashboard usa el dataset completo limpio y puedes descargar cada archivo por separado.</span></div>", unsafe_allow_html=True)
+
     df_work=df_base.copy()
     cols_utiles=[c for c in df_work.columns if not c.startswith("_")]
 
-    # 1. Diagnostico
-    st.markdown(f"<h4 style='color:{N(GOLD)};'>1. Diagnostico del dataset</h4>", unsafe_allow_html=True)
+    # ── Resumen por archivo cargado ──
+    st.markdown(f"<h4 style='color:{N(GOLD)};'>Archivos cargados ({len(noms)})</h4>", unsafe_allow_html=True)
+    cols_arch = st.columns(min(len(noms), 4))
+    for i, nom in enumerate(noms):
+        sub = df_work[df_work["_src"]==nom]
+        with cols_arch[i % len(cols_arch)]:
+            nulos_sub = sub[cols_utiles].isnull().sum().sum()
+            st.markdown(
+                f"<div style='background:{N(NAVY_M)};border-radius:8px;padding:10px 14px;border-left:3px solid {N(TEAL)};margin-bottom:8px;'>"
+                f"<div style='color:{N(GOLD)};font-size:12px;font-weight:bold;'>{nom}</div>"
+                f"<div style='color:{N(WHITE)};font-size:13px;font-weight:bold;margin-top:2px;'>{len(sub):,} registros</div>"
+                f"<div style='color:{N(GRAY)};font-size:11px;'>Nulos: {nulos_sub} | Cols: {len(cols_utiles)}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+    # 1. Diagnostico (sobre todo el dataset unificado)
+    st.markdown(f"<h4 style='color:{N(GOLD)};'>1. Diagnostico del dataset unificado</h4>", unsafe_allow_html=True)
     total_filas=len(df_work)
     nulos=df_work[cols_utiles].isnull().sum()
     nulos_pct=(nulos/total_filas*100).round(1)
     nulos_df=pd.DataFrame({"Columna":nulos.index,"Nulos":nulos.values,"Porcentaje":nulos_pct.values})
     nulos_df=nulos_df[nulos_df["Nulos"]>0].reset_index(drop=True)
-    n_dup=df_work.duplicated(subset=[c for c in cols_utiles if c!="_src"]).sum()
+    n_dup=df_work.duplicated(subset=[c for c in cols_utiles if c not in ["id_pedido","_src"]]).sum()
     fechas_nulas=df_work["fecha_pedido"].isnull().sum() if "fecha_pedido" in df_work.columns else 0
     neg={}
     for c in ["total_venta","margen_bruto","cantidad","precio_unitario","costo_produccion"]:
@@ -285,69 +392,80 @@ with T0:
                     if nuevo!=str(val): mapa_col[val]=nuevo
             if mapa_col: mapeos[col]=mapa_col
 
-    # 5. Aplicar
+    # 5. Aplicar — ahora sobre TODOS los archivos
     st.markdown(f"<hr style='border-color:{N(NAVY_L)};margin:16px 0;'>", unsafe_allow_html=True)
     st.markdown(f"<h4 style='color:{N(GOLD)};'>5. Aplicar y revisar</h4>", unsafe_allow_html=True)
+    st.markdown(
+        info_box(
+            f"Las transformaciones se aplicaran sobre el dataset unificado de <b>{len(noms)} archivo(s)</b> "
+            f"({total_filas:,} registros en total). Luego podras descargar el CSV unificado o un ZIP con cada archivo por separado.",
+            TEAL
+        ),
+        unsafe_allow_html=True
+    )
 
     if st.button("Aplicar todas las transformaciones",key="btn_limpiar"):
-        df_clean=df_work.copy(); log=[]
-        if op_dup:
-            antes=len(df_clean)
-            df_clean=df_clean.drop_duplicates(subset=[c for c in cols_utiles if c!="id_pedido"],keep="first")
-            elim=antes-len(df_clean)
-            if elim: log.append(f"Duplicados eliminados: {elim} filas.")
-        if op_nulos_fecha and "fecha_pedido" in df_clean.columns:
-            antes=len(df_clean); df_clean=df_clean[df_clean["fecha_pedido"].notna()]
-            elim=antes-len(df_clean)
-            if elim: log.append(f"Filas sin fecha valida eliminadas: {elim}.")
-        if op_negativos:
-            antes=len(df_clean)
-            for c in ["total_venta","cantidad"]:
-                if c in df_clean.columns: df_clean=df_clean[df_clean[c]>=0]
-            elim=antes-len(df_clean)
-            if elim: log.append(f"Filas con valores negativos eliminadas: {elim}.")
-        if op_strip:
-            for c in ["referencia","canal","categoria","estado_pedido","metodo_pago","talla","nombre_cliente"]:
-                if c in df_clean.columns: df_clean[c]=df_clean[c].astype(str).str.strip().str.title()
-            log.append("Texto estandarizado (strip + Title Case).")
-        if op_nulos_ref and "referencia" in df_clean.columns:
-            n=df_clean["referencia"].isna().sum(); df_clean["referencia"]=df_clean["referencia"].fillna("Sin Referencia")
-            if n: log.append(f"Referencias vacias rellenadas: {n}.")
-        if op_nulos_canal and "canal" in df_clean.columns:
-            n=df_clean["canal"].isna().sum(); df_clean["canal"]=df_clean["canal"].fillna("Presencial")
-            if n: log.append(f"Canales vacios rellenados: {n}.")
-        if op_nulos_estado and "estado_pedido" in df_clean.columns:
-            n=df_clean["estado_pedido"].isna().sum(); df_clean["estado_pedido"]=df_clean["estado_pedido"].fillna("Pendiente")
-            if n: log.append(f"Estados vacios rellenados: {n}.")
-        if op_calcular_margen:
-            cond=["precio_unitario","costo_produccion","cantidad","margen_bruto"]
-            if all(c in df_clean.columns for c in cond):
-                mask=df_clean["margen_bruto"]==0
-                df_clean.loc[mask,"margen_bruto"]=(df_clean.loc[mask,"precio_unitario"]-df_clean.loc[mask,"costo_produccion"])*df_clean.loc[mask,"cantidad"]
-                if mask.sum(): log.append(f"Margen recalculado en {mask.sum()} filas.")
-        if rango_venta and "total_venta" in df_clean.columns:
-            antes=len(df_clean); df_clean=df_clean[(df_clean["total_venta"]>=rango_venta[0])&(df_clean["total_venta"]<=rango_venta[1])]
-            elim=antes-len(df_clean)
-            if elim: log.append(f"Filas fuera del rango de venta eliminadas: {elim}.")
-        if rango_cant and "cantidad" in df_clean.columns:
-            antes=len(df_clean); df_clean=df_clean[(df_clean["cantidad"]>=rango_cant[0])&(df_clean["cantidad"]<=rango_cant[1])]
-            elim=antes-len(df_clean)
-            if elim: log.append(f"Filas fuera del rango de cantidad eliminadas: {elim}.")
-        if rango_fecha and "fecha_pedido" in df_clean.columns and len(rango_fecha)==2:
-            antes=len(df_clean); df_clean=df_clean[(df_clean["fecha_pedido"]>=pd.Timestamp(rango_fecha[0]))&(df_clean["fecha_pedido"]<=pd.Timestamp(rango_fecha[1]))]
-            elim=antes-len(df_clean)
-            if elim: log.append(f"Filas fuera del rango de fechas eliminadas: {elim}.")
-        for col,mapa in mapeos.items():
-            if col in df_clean.columns and mapa:
-                df_clean[col]=df_clean[col].replace(mapa); log.append(f"Columna '{col}': {len(mapa)} valor(es) reemplazado(s).")
-        st.session_state["df_limpio"]=df_clean; st.session_state["limpieza_aprobada"]=False
-        st.success(f"Transformaciones aplicadas. Resultado: {len(df_clean):,} filas.")
-        for msg in log: st.markdown(info_box(msg,TEAL),unsafe_allow_html=True)
+        opciones = dict(
+            op_dup=op_dup,
+            op_nulos_fecha=op_nulos_fecha,
+            op_negativos=op_negativos,
+            op_strip=op_strip,
+            op_nulos_ref=op_nulos_ref,
+            op_nulos_canal=op_nulos_canal,
+            op_nulos_estado=op_nulos_estado,
+            op_calcular_margen=op_calcular_margen,
+            rango_venta=rango_venta,
+            rango_cant=rango_cant,
+            rango_fecha=rango_fecha if (rango_fecha and len(rango_fecha)==2) else None,
+            mapeos=mapeos,
+        )
+
+        # ── Limpiar TODO el dataset unificado ──
+        df_clean_total, log_total = aplicar_limpieza(df_work, opciones)
+
+        # ── Limpiar CADA archivo por separado (para descargas individuales) ──
+        dfs_por_archivo = {}
+        for nom in noms:
+            sub = df_work[df_work["_src"]==nom].copy()
+            sub_clean, _ = aplicar_limpieza(sub, opciones)
+            dfs_por_archivo[nom] = sub_clean
+
+        st.session_state["df_limpio"] = df_clean_total
+        st.session_state["dfs_por_archivo"] = dfs_por_archivo
+        st.session_state["limpieza_aprobada"] = False
+
+        st.success(
+            f"Transformaciones aplicadas sobre {len(noms)} archivo(s). "
+            f"Resultado unificado: {len(df_clean_total):,} filas."
+        )
+        for msg in log_total:
+            st.markdown(info_box(msg, TEAL), unsafe_allow_html=True)
+
+        # Resumen por archivo tras limpieza
+        st.markdown(f"<h4 style='color:{N(GOLD)};'>Resultado por archivo</h4>", unsafe_allow_html=True)
+        cols_res = st.columns(min(len(noms), 4))
+        for i, nom in enumerate(noms):
+            orig = df_work[df_work["_src"]==nom]
+            clean = dfs_por_archivo[nom]
+            diff = len(orig) - len(clean)
+            with cols_res[i % len(cols_res)]:
+                st.markdown(
+                    f"<div style='background:{N(NAVY_M)};border-radius:8px;padding:10px 14px;"
+                    f"border-left:3px solid {N(GREEN)};margin-bottom:8px;'>"
+                    f"<div style='color:{N(GOLD)};font-size:11px;font-weight:bold;'>{nom}</div>"
+                    f"<div style='color:{N(WHITE)};font-size:13px;'>{len(orig):,} → <b>{len(clean):,}</b> filas</div>"
+                    f"<div style='color:{N(RED) if diff>0 else N(GREEN)};font-size:11px;'>"
+                    f"{'−'+str(diff)+' eliminadas' if diff>0 else 'Sin cambios'}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
     df_preview=st.session_state.get("df_limpio")
+    dfs_por_arch_preview = st.session_state.get("dfs_por_archivo", {})
+
     if df_preview is not None:
         st.markdown(f"<hr style='border-color:{N(NAVY_L)};margin:16px 0;'>", unsafe_allow_html=True)
-        st.markdown(f"<h4 style='color:{N(GOLD)};'>Vista previa — datos transformados ({len(df_preview):,} filas)</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='color:{N(GOLD)};'>Vista previa — datos transformados ({len(df_preview):,} filas totales)</h4>", unsafe_allow_html=True)
         bc1,bc2,bc3=st.columns(3)
         with bc1: st.metric("Filas originales",f"{len(df_base):,}")
         with bc2: st.metric("Filas limpias",f"{len(df_preview):,}")
@@ -359,9 +477,65 @@ with T0:
             num_cols=df_preview.select_dtypes(include=[np.number]).columns.tolist()
             num_cols=[c for c in num_cols if not c.startswith("_") and c not in ["mes","semana","dias_retraso"]]
             if num_cols: st.dataframe(df_preview[num_cols].describe().round(0),use_container_width=True)
-        csv_limpio=df_preview[cm_prev].to_csv(index=False,encoding="utf-8-sig").encode("utf-8-sig")
-        b64_limpio=base64.b64encode(csv_limpio).decode()
-        st.markdown(f'<a href="data:file/csv;base64,{b64_limpio}" download="katrina_datos_limpios_{datetime.now().strftime("%Y%m%d")}.csv" style="display:inline-block;background-color:{N(TEAL)};color:{N(WHITE)};padding:9px 20px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:13px;margin-top:10px;">Descargar datos limpios (CSV)</a>', unsafe_allow_html=True)
+
+        # ── DESCARGAS ──
+        st.markdown(f"<h4 style='color:{N(GOLD)};margin-top:16px;'>Descargar datos limpios</h4>", unsafe_allow_html=True)
+        dl1, dl2 = st.columns(2)
+
+        with dl1:
+            # CSV unificado
+            csv_limpio=df_preview[cm_prev].to_csv(index=False,encoding="utf-8-sig").encode("utf-8-sig")
+            b64_limpio=base64.b64encode(csv_limpio).decode()
+            nombre_unif = f"katrina_datos_limpios_{datetime.now().strftime('%Y%m%d')}.csv"
+            st.markdown(
+                f'<a href="data:file/csv;base64,{b64_limpio}" download="{nombre_unif}" '
+                f'style="display:block;background-color:{N(TEAL)};color:{N(WHITE)};padding:9px 20px;'
+                f'border-radius:6px;text-decoration:none;font-weight:bold;font-size:13px;'
+                f'text-align:center;margin-bottom:6px;">⬇ Descargar CSV unificado ({len(df_preview):,} filas)</a>',
+                unsafe_allow_html=True
+            )
+
+        with dl2:
+            # ZIP con un CSV por archivo original
+            if dfs_por_arch_preview:
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for nom, df_sub in dfs_por_arch_preview.items():
+                        cm_sub = [c for c in df_sub.columns if not c.startswith("_")]
+                        csv_sub = df_sub[cm_sub].to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+                        nombre_csv = nom.replace(".xlsx","").replace(".xls","").replace(".csv","")
+                        zf.writestr(f"{nombre_csv}_limpio.csv", csv_sub)
+                zip_buffer.seek(0)
+                b64_zip = base64.b64encode(zip_buffer.read()).decode()
+                nombre_zip = f"katrina_archivos_limpios_{datetime.now().strftime('%Y%m%d')}.zip"
+                st.markdown(
+                    f'<a href="data:application/zip;base64,{b64_zip}" download="{nombre_zip}" '
+                    f'style="display:block;background-color:{N(PURPLE)};color:{N(WHITE)};padding:9px 20px;'
+                    f'border-radius:6px;text-decoration:none;font-weight:bold;font-size:13px;'
+                    f'text-align:center;margin-bottom:6px;">⬇ Descargar ZIP ({len(dfs_por_arch_preview)} archivos separados)</a>',
+                    unsafe_allow_html=True
+                )
+
+        # Descarga individual por archivo
+        if dfs_por_arch_preview and len(dfs_por_arch_preview) > 1:
+            with st.expander(f"Descargar archivo limpio individual ({len(dfs_por_arch_preview)} disponibles)", expanded=False):
+                for nom, df_sub in dfs_por_arch_preview.items():
+                    cm_sub = [c for c in df_sub.columns if not c.startswith("_")]
+                    csv_sub = df_sub[cm_sub].to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+                    b64_sub = base64.b64encode(csv_sub).decode()
+                    nombre_ind = nom.replace(".xlsx","").replace(".xls","").replace(".csv","") + "_limpio.csv"
+                    col_nom, col_btn = st.columns([3,2])
+                    with col_nom:
+                        st.markdown(f"<span style='color:{N(GRAY)};font-size:12px;'>{nom} → <b style='color:{N(WHITE)};'>{len(df_sub):,} filas</b></span>", unsafe_allow_html=True)
+                    with col_btn:
+                        st.markdown(
+                            f'<a href="data:file/csv;base64,{b64_sub}" download="{nombre_ind}" '
+                            f'style="display:inline-block;background-color:{N(NAVY_L)};color:{N(GOLD)};padding:5px 14px;'
+                            f'border-radius:6px;text-decoration:none;font-size:12px;font-weight:bold;'
+                            f'border:1px solid {N(GOLD)};">⬇ Descargar</a>',
+                            unsafe_allow_html=True
+                        )
+
         st.markdown(f"<hr style='border-color:{N(NAVY_L)};margin:16px 0;'>", unsafe_allow_html=True)
         if not st.session_state["limpieza_aprobada"]:
             st.markdown(info_box("Cuando estes conforme con los datos limpios, aprueba para activar el dashboard completo.",GOLD),unsafe_allow_html=True)
@@ -371,7 +545,8 @@ with T0:
         else:
             st.success("Datos aprobados. El dashboard esta activo con los datos limpios.")
             if st.button("Resetear aprobacion y volver a limpiar",key="btn_reset"):
-                st.session_state["limpieza_aprobada"]=False; st.session_state["df_limpio"]=None; st.rerun()
+                st.session_state["limpieza_aprobada"]=False; st.session_state["df_limpio"]=None
+                st.session_state["dfs_por_archivo"]={}; st.rerun()
     else:
         st.markdown(info_box("Configura las opciones y haz clic en Aplicar todas las transformaciones.",GRAY),unsafe_allow_html=True)
 
