@@ -152,7 +152,7 @@ def prep(df):
         df["entregado_a_tiempo"]=df["dias_retraso"]<=0
     return df
 
-# ── Funcion de limpieza reutilizable ──
+# ── Funcion de limpieza reutilizable (incluye anonimización) ──
 def aplicar_limpieza(df_input, opciones):
     """
     Aplica las transformaciones de limpieza a un dataframe.
@@ -170,6 +170,7 @@ def aplicar_limpieza(df_input, opciones):
     op_nulos_canal= opciones.get("op_nulos_canal", False)
     op_nulos_estado=opciones.get("op_nulos_estado", False)
     op_calcular_margen=opciones.get("op_calcular_margen", False)
+    op_anonimizar = opciones.get("op_anonimizar", False)
     rango_venta   = opciones.get("rango_venta", None)
     rango_cant    = opciones.get("rango_cant", None)
     rango_fecha   = opciones.get("rango_fecha", None)
@@ -235,6 +236,15 @@ def aplicar_limpieza(df_input, opciones):
     for col,mapa in mapeos.items():
         if col in df_clean.columns and mapa:
             df_clean[col]=df_clean[col].replace(mapa); log.append(f"Columna '{col}': {len(mapa)} valor(es) reemplazado(s).")
+
+    # ANONIMIZACIÓN DE CLIENTES
+    if op_anonimizar and "nombre_cliente" in df_clean.columns:
+        # Obtener todos los nombres únicos (excluyendo nulos)
+        nombres_unicos = sorted(df_clean["nombre_cliente"].dropna().unique())
+        # Crear mapeo a IDs anónimos
+        mapping = {nombre: f"Cliente_{i+1}" for i, nombre in enumerate(nombres_unicos)}
+        df_clean["nombre_cliente"] = df_clean["nombre_cliente"].map(mapping).fillna("Cliente_anonimo")
+        log.append(f"Anonimización aplicada: {len(mapping)} nombres reales reemplazados por IDs genéricos.")
 
     return df_clean, log
 
@@ -350,6 +360,7 @@ with T0:
         op_nulos_canal=st.checkbox("Rellenar canal vacio con Presencial",value=False,key="op_nc")
         op_nulos_estado=st.checkbox("Rellenar estado vacio con Pendiente",value=False,key="op_ne")
         op_calcular_margen=st.checkbox("Recalcular margen_bruto donde sea 0",value=False,key="op_marg")
+        op_anonimizar=st.checkbox("Anonimizar datos de clientes (reemplazar nombres reales por IDs anónimos)",value=False,key="op_anon")
 
     # 3. Filtros de rango
     st.markdown(f"<hr style='border-color:{N(NAVY_L)};margin:16px 0;'>", unsafe_allow_html=True)
@@ -414,6 +425,7 @@ with T0:
             op_nulos_canal=op_nulos_canal,
             op_nulos_estado=op_nulos_estado,
             op_calcular_margen=op_calcular_margen,
+            op_anonimizar=op_anonimizar,
             rango_venta=rango_venta,
             rango_cant=rango_cant,
             rango_fecha=rango_fecha if (rango_fecha and len(rango_fecha)==2) else None,
